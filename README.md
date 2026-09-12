@@ -6,6 +6,8 @@ Shopmate is a stateful, autonomous, agentic web application designed to bridge t
 
 This project was built for the **HOJATHON — Agentic AI Hackathon 2026, Series 01**.
 
+**Demo URL:** [shopmate-nu.vercel.app](https://shopmate-nu.vercel.app/)
+
 ## Problem Statement
 
 Standard e-commerce apps assume comfort with app navigation, product comparison UIs, and complex digital checkout flows. First-time digital buyers and low-digital-literacy users (e.g., older users or those who prefer casual mixed-language text over structured UI forms) are effectively excluded from convenient online shopping. The barrier isn't the availability of products, but the interface itself.
