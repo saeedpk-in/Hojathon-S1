@@ -1,46 +1,41 @@
-# =========================================
-# Hojathon — Generic, stack-agnostic .gitignore
-# =========================================
-# This file protects against accidentally committing secrets and
-# common OS/editor junk. It does not assume any specific language,
-# framework, or tool. Add stack-specific rules for your own project
-# as needed inside your fork.
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# ---- Secrets & credentials ----
-.env
-.env.*
-!.env.example
-*.pem
-*.key
-*.cert
-*.crt
-*secret*
-*credentials*
-*.p12
-*.pfx
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
 
-# ---- OS-generated files ----
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-desktop.ini
+*.pem
 
-# ---- Editor / IDE metadata ----
-.vscode/
-.idea/
-*.sublime-project
-*.sublime-workspace
-*.swp
-*.swo
-*~
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
 
-# ---- Temporary / log files ----
-*.log
-*.tmp
-*.temp
-*.bak
-*.cache
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts

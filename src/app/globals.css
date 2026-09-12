@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+
+  /* App semantic colors from DESIGN.md */
+  --bg-app: #0A0A0A;
+  --bg-sidebar: #171717;
+  --bg-elevated: #1A1A1A;
+  --bg-composer: #242424;
+  --border-subtle: #2A2A2A;
+  
+  --text-primary: #F5F5F5;
+  --text-secondary: #A1A1AA;
+  --text-muted: #71717A;
+
+  --user-msg-surface: #F4F4F5;
+  --user-msg-text: #111111;
+
+  --background: var(--bg-app);
+  --foreground: var(--text-primary);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans), Inter, Arial, sans-serif;
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+/* Shimmer animation for processing state */
+@keyframes shimmer {
+  0% {
+    background-position: 200% center;
+  }
+  100% {
+    background-position: -200% center;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--text-secondary) 0%,
+    var(--text-primary) 50%,
+    var(--text-secondary) 100%
+  );
+  background-size: 200% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: shimmer 2s linear infinite;
+}
+
+/* Custom scrollbar to maintain premium feel */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bg-composer);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-subtle);
+}
