@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import connectToDatabase from "@/lib/mongoose";
 import UserPreference from "@/models/UserPreference";
+import UserDetail from "@/models/UserDetail";
 import Chat from "@/models/Chat";
 import Message from "@/models/Message";
+import Order from "@/models/Order";
 import Razorpay from "razorpay";
 
 // Constants
@@ -85,7 +87,7 @@ export async function POST(req: NextRequest) {
           properties: {
             action: {
               type: SchemaType.STRING,
-              description: "The user's intent. Use 'buy' ONLY if the user is explicitly confirming they want to purchase the previously suggested item (e.g., 'Yes buy it', 'I want this one'). Otherwise, default to 'search'.",
+              description: "The user's intent. Use 'buy' if the user is explicitly confirming purchase OR if they are providing their delivery details (name, address, phone) to continue checkout. Otherwise, default to 'search'.",
               enum: ["search", "buy"]
             },
             category: {
@@ -101,6 +103,18 @@ export async function POST(req: NextRequest) {
             budget: {
               type: SchemaType.NUMBER,
               description: "The maximum budget extracted from the user's message, in INR (Rupees). If no budget is specified, provide a high default like 999999."
+            },
+            userDetails: {
+              type: SchemaType.OBJECT,
+              description: "Extract the user's delivery details if provided in the message. Map comma-separated values intelligently to the correct fields.",
+              properties: {
+                name: { type: SchemaType.STRING, description: "Full name" },
+                phone: { type: SchemaType.STRING, description: "Phone number" },
+                address: { type: SchemaType.STRING, description: "Street address or house name" },
+                city: { type: SchemaType.STRING, description: "City or town name" },
+                state: { type: SchemaType.STRING, description: "State name" },
+                pincode: { type: SchemaType.STRING, description: "Postal or PIN code" },
+              }
             }
           },
           required: ["action", "category", "budget"],
@@ -111,13 +125,33 @@ export async function POST(req: NextRequest) {
     const prompt = `Analyze the following message (which may be in English, Malayalam, or a mix) and extract the intended action, product category, and the budget.
 Valid categories are only: "electronics", "jewelery", "men's clothing", "women's clothing".
 Map their intent to the closest matching valid category.
+If the user is providing delivery details (like address or phone), their action is "buy" because they are continuing a checkout process.
 ${userPref ? `\nPrevious Context: The user previously wanted category "${userPref.category}" under budget ${userPref.budget}. If they are just following up without specifying new ones, reuse these previous values! If they specify a new budget or category, extract the new ones.` : ''}
 
 Message: "${message}"`;
 
     const result = await model.generateContent(prompt);
     const responseText = result.response.text();
-    const { action, category, budget } = JSON.parse(responseText);
+    const { action, category, budget, userDetails } = JSON.parse(responseText);
+
+    // Update UserDetails if any were provided
+    let currentUserDetail: any = null;
+    try {
+      await connectToDatabase();
+      currentUserDetail = await UserDetail.findOne({ userId: DEMO_USER_ID });
+      
+      if (userDetails && Object.keys(userDetails).length > 0) {
+        if (!currentUserDetail) {
+          currentUserDetail = new UserDetail({ userId: DEMO_USER_ID, ...userDetails });
+        } else {
+          // Merge new details
+          Object.assign(currentUserDetail, userDetails);
+        }
+        await currentUserDetail.save();
+      }
+    } catch (e) {
+      console.error("Error fetching/saving UserDetail:", e);
+    }
 
     // ==========================================
     // ACTION: BUY
@@ -135,6 +169,34 @@ Message: "${message}"`;
 
         return NextResponse.json({
           action: "buy",
+          explanation: expl
+        });
+      }
+
+      // Phase 5.5: Check User Details
+      const requiredFields = ["name", "phone", "address", "city", "state", "pincode"];
+      const missingFields: string[] = [];
+      
+      if (!currentUserDetail) {
+        missingFields.push(...requiredFields);
+      } else {
+        requiredFields.forEach(field => {
+          if (!currentUserDetail[field]) missingFields.push(field);
+        });
+      }
+
+      if (missingFields.length > 0) {
+        const expl = `Before I continue, I need your delivery details. Could you provide your ${missingFields.join(", ")}?`;
+        
+        try {
+          await connectToDatabase();
+          await Message.create({ chatId, userId: DEMO_USER_ID, role: "assistant", content: expl });
+        } catch (e) {
+          console.error("Error saving assistant require_details message to history:", e);
+        }
+
+        return NextResponse.json({
+          action: "require_details",
           explanation: expl
         });
       }
@@ -165,23 +227,47 @@ Message: "${message}"`;
           throw new Error("Invalid product price");
         }
 
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
         const paymentLinkReq = await razorpay.paymentLink.create({
           amount: amountInPaise,
           currency: "INR",
           description: `Purchase of ${product.title}`,
           customer: {
-            name: "Test Customer",
+            name: currentUserDetail.name,
             email: "test@example.com",
-            contact: "+919876543210"
+            contact: "+919876543210" // Razorpay enforces valid numbers in test mode, using a safe default for demo
           },
           notify: {
             sms: false,
             email: false
           },
-          reminder_enable: false
+          reminder_enable: false,
+          callback_url: `${appUrl}/?payment_callback=true`,
+          callback_method: "get"
         });
 
-        const expl = "Great choice! Click the button below to complete your test payment securely.";
+        // Create Pending Order
+        const orderId = "SM-" + Math.floor(100000 + Math.random() * 900000).toString();
+        await Order.create({
+          orderId,
+          userId: DEMO_USER_ID,
+          razorpayLinkId: paymentLinkReq.id,
+          product: product,
+          amount: product.price,
+          paymentStatus: "pending",
+          orderStatus: "placed",
+          deliveryAddress: {
+            name: currentUserDetail.name,
+            phone: currentUserDetail.phone,
+            address: currentUserDetail.address,
+            city: currentUserDetail.city,
+            state: currentUserDetail.state,
+            pincode: currentUserDetail.pincode,
+          }
+        });
+
+        const expl = "I'll use your saved delivery address. Ready to continue? Click the button below to complete your test payment securely.";
 
         // Save assistant message to history
         try {
@@ -244,7 +330,12 @@ Message: "${message}"`;
     const filteredProducts = products.filter((product: any) => product.price <= budget);
 
     if (filteredProducts.length === 0) {
-      const expl = "No products found matching your category and budget.";
+      let expl = "No products found matching your category and budget.";
+      // Acknowledge saved details if they were just provided
+      if (userDetails && Object.keys(userDetails).length > 0) {
+        expl = "Thanks, I've saved your details! However, " + expl.toLowerCase();
+      }
+
       try {
         await connectToDatabase();
         await Message.create({ chatId, userId: DEMO_USER_ID, role: "assistant", content: expl });
@@ -324,6 +415,11 @@ Explain your reasoning in a friendly tone, in the exact same language (e.g., Mal
       }
     }
 
+    let finalExpl = decisionData.explanation;
+    if (userDetails && Object.keys(userDetails).length > 0) {
+       finalExpl = "Thanks, I've saved your delivery details! " + finalExpl;
+    }
+
     // Save assistant message to history
     try {
       await connectToDatabase();
@@ -331,7 +427,7 @@ Explain your reasoning in a friendly tone, in the exact same language (e.g., Mal
         chatId,
         userId: DEMO_USER_ID,
         role: "assistant",
-        content: decisionData.explanation,
+        content: finalExpl,
         product: minimalProduct,
       });
     } catch (err) {
@@ -342,7 +438,7 @@ Explain your reasoning in a friendly tone, in the exact same language (e.g., Mal
       action: "search",
       intent: { category, budget },
       selectedProduct,
-      explanation: decisionData.explanation
+      explanation: finalExpl
     });
 
   } catch (error: any) {
